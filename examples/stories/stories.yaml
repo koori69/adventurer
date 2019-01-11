@@ -1,0 +1,17 @@
+#- url: ""
+#  method:
+#  - ""
+#  handler: ""
+#  trials:
+#    - token: "true"
+- url: "/test/hello"
+  method:
+    - "GET"
+  handler: "DemoHandler"
+  trials:
+    token:
+      - "true"
+    header:
+      - "true"
+    permission:
+      - "ADMIN"
