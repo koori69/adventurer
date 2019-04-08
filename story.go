@@ -20,14 +20,12 @@ func LoadStories(path string) (*[]Story, error) {
 	data, err := ioutil.ReadFile(path)
 
 	if err != nil {
-		logger.Error(err.Error())
 		return nil, err
 	}
 
 	var stories []Story
 	err = yaml.Unmarshal(data, &stories)
 	if err != nil {
-		logger.Error(err.Error())
 		return nil, err
 	}
 	return &stories, nil

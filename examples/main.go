@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 
-	"adventurer"
+	"github.com/koori69/adventurer"
 )
 
 func main() {

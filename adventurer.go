@@ -4,8 +4,8 @@ package adventurer
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -14,11 +14,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
-var logger = DefaultLog()
 
 // Adventurer 路由对象
 type Adventurer struct {
@@ -53,13 +50,12 @@ type StoryHook map[string]Hook // 基本信息，key：校验的名字，value�
 // NewAdventurer 生成路由对象
 func NewAdventurer(owner interface{}, stories *[]Story, profile *Profile, hook *StoryHook) (*Adventurer, error) {
 	if nil == owner || nil == stories {
-		logger.Error("param is nil")
 		return nil, errors.New("param is nil")
 	}
 	adventurer := &Adventurer{owner: owner, profile: profile, hook: hook}
 	err := adventurer.InitStory(*stories)
 	if nil != err {
-		logger.Error(err.Error())
+		log.Println(err)
 		return nil, err
 	}
 	if nil != profile || "" != profile.URL {
@@ -70,7 +66,7 @@ func NewAdventurer(owner interface{}, stories *[]Story, profile *Profile, hook *
 		}
 		err = adventurer.AddStory(story)
 		if nil != err {
-			logger.Error(err.Error())
+			log.Println(err)
 			return nil, err
 		}
 	}
@@ -80,7 +76,6 @@ func NewAdventurer(owner interface{}, stories *[]Story, profile *Profile, hook *
 // AddStory add story
 func (a *Adventurer) AddStory(s Story) error {
 	if "" == s.URL || nil == s.Method || "" == s.Handler {
-		logger.Error("param is invalid")
 		return errors.New("param is invalid")
 	}
 	methods := strings.Join(s.Method, ",")
@@ -89,13 +84,11 @@ func (a *Adventurer) AddStory(s Story) error {
 	}
 	for _, v := range a.stories {
 		if ok, _ := regexp.MatchString("[A-Z].*", v.Handler); !ok {
-			logger.Error("handler should be exported")
 			return errors.New("handler should be exported")
 		}
 		if v.URL == s.URL {
 			for _, m := range v.Method {
 				if strings.Contains(methods, m) {
-					logger.Error("url handler already exist")
 					return errors.New("url handler already exist")
 				}
 			}
@@ -108,13 +101,12 @@ func (a *Adventurer) AddStory(s Story) error {
 // InitStory 初始化story
 func (a *Adventurer) InitStory(stories []Story) error {
 	if nil == stories {
-		logger.Error("stories is nil")
 		return errors.New("stories is nil")
 	}
 	for _, s := range stories {
 		err := a.AddStory(s)
 		if nil != err {
-			logger.Error(err.Error())
+			log.Println(err)
 			return err
 		}
 	}
@@ -156,7 +148,7 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 					if nil != v.Trials {
 						equipment, err := parseEquipment(r)
 						if nil != err {
-							logger.Error(err.Error())
+						log.Println(err)
 							goto End
 						}
 						for k, t := range v.Trials {
@@ -164,7 +156,7 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 								if nil != trial {
 									b, err := trial.Fire(t, *equipment)
 									if nil != err {
-										logger.Error(err.Error())
+										log.Println(err)
 										goto End
 									}
 									if !b {
@@ -187,10 +179,11 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 	}
 End:
 	endTime := unixMillisecond()
-	logger.WithFields(logrus.Fields{
-		"url":  r.URL.Path,
-		"cost": fmt.Sprintf("%d ms", endTime-startTime),
-	}).Info("OK")
+	//logger.WithFields(logrus.Fields{
+	//	"url":  r.URL.Path,
+	//	"cost": fmt.Sprintf("%d ms", endTime-startTime),
+	//}).Info("OK")
+	log.Printf("cost:%d ms",endTime-startTime)
 	if found && !match {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -214,31 +207,26 @@ func parseEquipment(r *http.Request) (*Equipment, error) {
 	case http.MethodPut:
 		exp, err := regexp.Compile("([a-zA-z/\\-_\\.]+)(;*(.+))*")
 		if nil != err {
-			logger.Error(err.Error())
 			return nil, err
 		}
 		param := exp.FindStringSubmatch(r.Header.Get("Content-Type"))
 		if nil == param || len(param) < 2 {
-			logger.Error("not found content-type")
 			return nil, errors.New("not found content-type")
 		}
 		switch param[1] {
 		case "multipart/form-data":
 			body, err := httputil.DumpRequest(r, true)
 			if nil != err {
-				logger.Error(err.Error())
 				return nil, err
 			}
 			copy, err := http.NewRequest("POST", "", bytes.NewReader(body))
 			if nil != err {
-				logger.Error(err.Error())
 				return nil, err
 			}
 			copy.Header = r.Header
 			err = copy.ParseMultipartForm(32 << 20)
 			if nil != err {
 				copy.Body.Close()
-				logger.Error(err.Error())
 				return nil, err
 			}
 			copy.Body.Close()
@@ -255,7 +243,6 @@ func parseEquipment(r *http.Request) (*Equipment, error) {
 		default:
 			body, err := ioutil.ReadAll(r.Body)
 			if nil != err {
-				logger.Error(err.Error())
 				return nil, err
 			}
 			r.Body.Close()

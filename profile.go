@@ -4,6 +4,7 @@ package adventurer
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func (p *Profile) Handler(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	b, err := json.Marshal(p)
 	if err != nil {
-		logger.Error(err.Error())
+		log.Println(err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
