@@ -8,6 +8,7 @@ Go语言的路由器框架，支持URL正则匹配，API预处理等功能
 - API预处理
 - URL支持指定请求Method
 - 支持跨域
+- 支持自定义错误返回
 
 ## Quick Start
 

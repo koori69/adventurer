@@ -16,7 +16,6 @@ import (
 	"time"
 )
 
-
 // Adventurer 路由对象
 type Adventurer struct {
 	owner   interface{}
@@ -24,6 +23,7 @@ type Adventurer struct {
 	profile *Profile
 	cros    bool
 	hook    *StoryHook
+	resp    *Resp
 }
 
 // Equipment 请求的信息
@@ -47,12 +47,18 @@ type Hook interface {
 
 type StoryHook map[string]Hook // 基本信息，key：校验的名字，value：校验实现
 
+type Resp struct {
+	Code int
+	Msg  []byte
+}
+
 // NewAdventurer 生成路由对象
-func NewAdventurer(owner interface{}, stories *[]Story, profile *Profile, hook *StoryHook) (*Adventurer, error) {
+func NewAdventurer(owner interface{}, stories *[]Story,
+	profile *Profile, hook *StoryHook, resp *Resp) (*Adventurer, error) {
 	if nil == owner || nil == stories {
 		return nil, errors.New("param is nil")
 	}
-	adventurer := &Adventurer{owner: owner, profile: profile, hook: hook}
+	adventurer := &Adventurer{owner: owner, profile: profile, hook: hook, resp: resp}
 	err := adventurer.InitStory(*stories)
 	if nil != err {
 		log.Println(err)
@@ -132,6 +138,7 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 	}
 	found := false
 	match := false
+	trialFailed := false
 	for _, v := range a.stories {
 		methods := strings.Join(v.Method, ",")
 		if ok, _ := regexp.MatchString("^"+v.URL+"$", r.URL.Path); ok {
@@ -148,7 +155,14 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 					if nil != v.Trials {
 						equipment, err := parseEquipment(r)
 						if nil != err {
-						log.Println(err)
+							log.Println(err)
+							trialFailed = true
+							if nil != a.resp {
+								w.WriteHeader((*a.resp).Code)
+								w.Write((*a.resp).Msg)
+							} else {
+								w.WriteHeader(http.StatusBadRequest)
+							}
 							goto End
 						}
 						for k, t := range v.Trials {
@@ -157,10 +171,23 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 									b, err := trial.Fire(t, *equipment)
 									if nil != err {
 										log.Println(err)
+										trialFailed = true
+										if nil != a.resp {
+											w.WriteHeader((*a.resp).Code)
+											w.Write((*a.resp).Msg)
+										} else {
+											w.WriteHeader(http.StatusBadRequest)
+										}
 										goto End
 									}
 									if !b {
-										w.WriteHeader(http.StatusBadRequest)
+										trialFailed = true
+										if nil != a.resp {
+											w.WriteHeader((*a.resp).Code)
+											w.Write((*a.resp).Msg)
+										} else {
+											w.WriteHeader(http.StatusBadRequest)
+										}
 										goto End
 									}
 								}
@@ -183,7 +210,10 @@ End:
 	//	"url":  r.URL.Path,
 	//	"cost": fmt.Sprintf("%d ms", endTime-startTime),
 	//}).Info("OK")
-	log.Printf("cost:%d ms",endTime-startTime)
+	log.Printf("url: %s, method: %s, cost:%d ms", r.URL, r.Method, endTime-startTime)
+	if trialFailed {
+		return
+	}
 	if found && !match {
 		w.WriteHeader(http.StatusBadRequest)
 		return
