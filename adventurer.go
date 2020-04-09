@@ -4,6 +4,7 @@ package adventurer
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net"
@@ -14,16 +15,20 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Adventurer 路由对象
 type Adventurer struct {
-	owner   interface{}
-	stories []Story
-	profile *Profile
-	cros    bool
-	hook    *StoryHook
-	resp    *Resp
+	owner           interface{}
+	stories         []Story
+	profile         *Profile
+	cros            bool
+	hook            *StoryHook
+	resp            *Resp
+	enableTrialsErr bool
+	logger          *logrus.Logger
 }
 
 // Equipment 请求的信息
@@ -37,13 +42,8 @@ type Equipment struct {
 // Hook 校验
 type Hook interface {
 	Fire(prerequisite []string, equipment Equipment) (bool, error)
+	ErrResp(w *http.ResponseWriter)
 }
-
-// StoryHook
-//type StoryHook struct {
-//	Info map[string]int // 基本信息，key：校验的名字，value：校验的优先级，数字越小优先级越高
-//	Hook Hook           // 校验
-//}
 
 type StoryHook map[string]Hook // 基本信息，key：校验的名字，value：校验实现
 
@@ -54,14 +54,26 @@ type Resp struct {
 
 // NewAdventurer 生成路由对象
 func NewAdventurer(owner interface{}, stories *[]Story,
-	profile *Profile, hook *StoryHook, resp *Resp) (*Adventurer, error) {
+	profile *Profile, hook *StoryHook, resp *Resp,
+	enableTrialsErr bool, logger *logrus.Logger) (*Adventurer, error) {
 	if nil == owner || nil == stories {
 		return nil, errors.New("param is nil")
 	}
-	adventurer := &Adventurer{owner: owner, profile: profile, hook: hook, resp: resp}
+	adventurer := &Adventurer{
+		owner:           owner,
+		profile:         profile,
+		hook:            hook,
+		resp:            resp,
+		enableTrialsErr: enableTrialsErr,
+		logger:          logger,
+	}
+	if nil == adventurer.logger {
+		adventurer.logger = logrus.StandardLogger()
+		adventurer.logger.SetFormatter(&logrus.JSONFormatter{})
+	}
 	err := adventurer.InitStory(*stories)
 	if nil != err {
-		log.Println(err)
+		logger.Error(err)
 		return nil, err
 	}
 	if nil != profile || "" != profile.URL {
@@ -72,7 +84,7 @@ func NewAdventurer(owner interface{}, stories *[]Story,
 		}
 		err = adventurer.AddStory(story)
 		if nil != err {
-			log.Println(err)
+			logger.Error(err)
 			return nil, err
 		}
 	}
@@ -82,6 +94,7 @@ func NewAdventurer(owner interface{}, stories *[]Story,
 // AddStory add story
 func (a *Adventurer) AddStory(s Story) error {
 	if "" == s.URL || nil == s.Method || "" == s.Handler {
+		a.logger.Error("param is invalid")
 		return errors.New("param is invalid")
 	}
 	methods := strings.Join(s.Method, ",")
@@ -90,11 +103,13 @@ func (a *Adventurer) AddStory(s Story) error {
 	}
 	for _, v := range a.stories {
 		if ok, _ := regexp.MatchString("[A-Z].*", v.Handler); !ok {
+			a.logger.Error("handler should be exported")
 			return errors.New("handler should be exported")
 		}
 		if v.URL == s.URL {
 			for _, m := range v.Method {
 				if strings.Contains(methods, m) {
+					a.logger.Error("url handler already exist")
 					return errors.New("url handler already exist")
 				}
 			}
@@ -107,12 +122,13 @@ func (a *Adventurer) AddStory(s Story) error {
 // InitStory 初始化story
 func (a *Adventurer) InitStory(stories []Story) error {
 	if nil == stories {
+		a.logger.Error("stories is nil")
 		return errors.New("stories is nil")
 	}
 	for _, s := range stories {
 		err := a.AddStory(s)
 		if nil != err {
-			log.Println(err)
+			a.logger.Error(err)
 			return err
 		}
 	}
@@ -170,13 +186,17 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 								if nil != trial {
 									b, err := trial.Fire(t, *equipment)
 									if nil != err {
-										log.Println(err)
+										a.logger.Error(err)
 										trialFailed = true
-										if nil != a.resp {
-											w.WriteHeader((*a.resp).Code)
-											w.Write((*a.resp).Msg)
+										if a.enableTrialsErr {
+											trial.ErrResp(&w)
 										} else {
-											w.WriteHeader(http.StatusBadRequest)
+											if nil != a.resp {
+												w.WriteHeader((*a.resp).Code)
+												w.Write((*a.resp).Msg)
+											} else {
+												w.WriteHeader(http.StatusBadRequest)
+											}
 										}
 										goto End
 									}
@@ -206,11 +226,11 @@ func (a *Adventurer) Explore(w http.ResponseWriter, r *http.Request) {
 	}
 End:
 	endTime := unixMillisecond()
-	//logger.WithFields(logrus.Fields{
-	//	"url":  r.URL.Path,
-	//	"cost": fmt.Sprintf("%d ms", endTime-startTime),
-	//}).Info("OK")
-	log.Printf("url: %s, method: %s, cost:%d ms", r.URL, r.Method, endTime-startTime)
+	a.logger.WithFields(logrus.Fields{
+		"url":    r.URL.Path,
+		"method": r.Method,
+		"cost":   fmt.Sprintf("%d ms", endTime-startTime),
+	}).Info("OK")
 	if trialFailed {
 		return
 	}

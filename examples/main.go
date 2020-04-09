@@ -19,7 +19,7 @@ func main() {
 	hook["header"] = NewHeaderHook()
 	a, err := adventurer.NewAdventurer(Demo{}, stories,
 		adventurer.NewProfile("/demo/about", "0.0.1", "1.11.2", "", "test"),
-		&hook, nil)
+		&hook, nil,false)
 	if nil != err {
 		log.Fatalln(err.Error())
 	}
